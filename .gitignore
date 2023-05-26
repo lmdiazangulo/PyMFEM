@@ -16,3 +16,4 @@ test/*
 !test/cpp/
 *.egg-info
 *.py#
+external/

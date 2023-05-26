@@ -75,7 +75,8 @@ elif platform == "darwin":
     dylibext = '.dylib'
 elif platform == "win32":
     # Windows...
-    assert False, "Windows is not supported yet. Contribution is welcome"
+    dylibext = '.dll'
+    # assert False, "Windows is not supported yet. Contribution is welcome"
 
 use_metis_gklib = False
 
@@ -305,8 +306,14 @@ def make_call(command, target='', force_verbose=False):
     #    kwargs['stdout'] = subprocess.PIPE
     #    kwargs['stderr'] = subprocess.STDOUT
 
-    p = subprocess.Popen(command, **kwargs)
-    p.communicate()
+    p = subprocess.run(command, capture_output=True, text=True)
+    import sys
+
+    p = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    while p.poll() is None:
+        l = p.stdout.readline()
+        print(l.decode('utf-8'))
+
     if p.returncode != 0:
         if target == '':
             target = " ".join(command)
@@ -343,7 +350,8 @@ def make(target):
     '''
     make : add -j option automatically
     '''
-    command = ['make', '-j', str(max((multiprocessing.cpu_count() - 1, 1)))]
+    # command = ['make', '-j', str(max((multiprocessing.cpu_count() - 1, 1)))]
+    command= ['cmake', '--build', '.', '-j', str(max((multiprocessing.cpu_count() - 1, 1)))]
     make_call(command, target=target, force_verbose=True)
 
 
@@ -351,7 +359,8 @@ def make_install(target, prefix=None):
     '''
     make install
     '''
-    command = ['make', 'install']
+    # command = ['make', 'install']
+    command = ['cmake', '.', 'install']
     if prefix is not None:
         command.append('prefix='+prefix)
     make_call(command, target=target)
@@ -381,13 +390,33 @@ def download(xxx):
     os.rename(os.path.join(extdir, targz.getnames()[0].split('/')[0]),
               os.path.join(extdir, xxx))
 
+def onerror(func, path, exc_info):
+    """
+    Error handler for ``shutil.rmtree``.
+
+    If the error is due to an access error (read only file)
+    it attempts to add write permission and then retries.
+
+    If the error is for another reason it re-raises the error.
+    
+    Usage : ``shutil.rmtree(path, onerror=onerror)``
+    """
+    import stat
+    # Is the error an access error?
+    if not os.access(path, os.W_OK):
+        os.chmod(path, stat.S_IWUSR)
+        func(path)
+    else:
+        raise
 
 def gitclone(xxx, use_sha=False, branch='master'):
     cwd = os.getcwd()
     repo_xxx = os.path.join(extdir, xxx)
     if os.path.exists(repo_xxx):
+        return
         print("Deleting the existing " + xxx)
-        shutil.rmtree(repo_xxx)
+        shutil.rmtree(repo_xxx, onerror=onerror)
+
 
     os.chdir(extdir)
     command = ['git', 'clone', repos[xxx], xxx]
@@ -435,6 +464,14 @@ def cmake(path, **kwargs):
     command = ['cmake', path]
     for key, value in kwargs.items():
         command.append('-' + key + '=' + value)
+
+    # command.append('-G')
+    # command.append('\"Visual Studio 17 2022\"')
+    # command.append('\"Ninja\"')
+    # command.append('-T host=x64')
+    # command.append('-A')
+    # command.append('x64')
+
     make_call(command)
 
 
@@ -723,13 +760,16 @@ def cmake_make_mfem(serial=True):
         if not p in rpaths:
             rpaths.append(p)
 
-    cmake_opts = {'DBUILD_SHARED_LIBS': '1',
-                  'DMFEM_ENABLE_EXAMPLES': '1',
-                  'DMFEM_ENABLE_MINIAPPS': '1',
-                  'DCMAKE_SHARED_LINKER_FLAGS': ldflags,
-                  'DMFEM_USE_ZLIB': '1',
-                  'DCMAKE_CXX_FLAGS': cxx11_flag,
-                  'DCMAKE_BUILD_WITH_INSTALL_RPATH': '1'}
+    cmake_opts = {
+        'DBUILD_SHARED_LIBS': '1',
+        'DMFEM_ENABLE_EXAMPLES': '1',
+        'DMFEM_ENABLE_MINIAPPS': '1',
+        'DCMAKE_SHARED_LINKER_FLAGS': ldflags,
+        'DMFEM_USE_ZLIB': '0',
+        'DCMAKE_CXX_FLAGS': cxx11_flag,
+        'DCMAKE_BUILD_WITH_INSTALL_RPATH': '1'
+    }
+
     if verbose:
         cmake_opts['DCMAKE_VERBOSE_MAKEFILE'] = '1'
 
